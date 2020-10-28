@@ -33,6 +33,9 @@ commands:
           bename: run_lint
           becommand: poetry run pylint --rcfile=pylint.rc opentelemetry
       - buildevents/berun:
+          bename: run_type_check
+          becommand: poetry run mypy opentelemetry
+      - buildevents/berun:
           bename: run_pycodestyle
           becommand: poetry run pycodestyle opentelemetry --max-line-length=140
   run_tests:

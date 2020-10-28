@@ -17,6 +17,7 @@
 Honeycomb from within your Python application.
 '''
 
+from typing import Any, List
 import libhoney
 import datetime
 import os
@@ -26,18 +27,32 @@ import types
 from requests import Session
 
 import opentelemetry.trace as trace_api
+from opentelemetry.trace import Span as BaseSpan
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.trace.status import StatusCanonicalCode
+from typing_extensions import Literal
 
 VERSION = '0.6b0'
 USER_AGENT_ADDITION = 'opentelemetry-exporter-python/%s' % VERSION
 
 
+class Span(BaseSpan):
+    start_time: int
+    end_time: int
+    name: str
+    kind: Any
+    parent: "Span"
+    attributes: Any
+    status: Any
+    links: List[Any]
+    events: List[Any]
+
+
 class HoneycombSpanExporter(SpanExporter):
     """Honeycomb span exporter for Opentelemetry.
     """
-    def __init__(self, writekey='', dataset='', service_name='',
-                 api_host='https://api.honeycomb.io'):
+    def __init__(self, writekey: str='', dataset: str = '', service_name: str ='',
+                 api_host='https://api.honeycomb.io') -> None:
         if not writekey:
             writekey = os.environ.get('HONEYCOMB_WRITEKEY', '')
 
@@ -52,7 +67,7 @@ class HoneycombSpanExporter(SpanExporter):
         )
         request = Session.request
         if getattr(Session.request, "opentelemetry_ext_requests_applied", False):
-            request = Session.request.__wrapped__  # pylint:disable=no-member
+            request = Session.request.__wrapped__  # type: ignore # pylint:disable=no-member
         # Bind session.request for this object to the non-instrumented version.
         transmission_impl.session.request = types.MethodType(request, transmission_impl.session)
 
@@ -66,7 +81,7 @@ class HoneycombSpanExporter(SpanExporter):
         self.client.add_field('meta.otel_exporter_version', VERSION)
         self.client.add_field('meta.local_hostname', socket.gethostname())
 
-    def export(self, spans):
+    def export(self, spans: List[Span]) -> SpanExportResult:
         hny_data = _translate_to_hny(spans)
         for d in hny_data:
             e = libhoney.Event(data=d, client=self.client)
@@ -75,16 +90,16 @@ class HoneycombSpanExporter(SpanExporter):
             e.send()
         return SpanExportResult.SUCCESS
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self.client.flush()
         self.client.close()
         self.client = None
 
 
-def _translate_to_hny(spans):
+def _translate_to_hny(spans: List[Span]) -> List[dict]:
     hny_data = []
     for span in spans:
-        ctx = span.get_context()
+        ctx = span.get_span_context()
         trace_id = ctx.trace_id
         span_id = ctx.span_id
         duration_ns = span.end_time - span.start_time
@@ -99,7 +114,7 @@ def _translate_to_hny(spans):
             'span.kind': span.kind.name,  # meta.span_type?
         }
         if isinstance(span.parent, trace_api.Span):
-            d['trace.parent_id'] = trace_api.format_span_id(span.parent.get_context().span_id)[2:]
+            d['trace.parent_id'] = trace_api.format_span_id(span.parent.get_span_context().span_id)[2:]
         elif isinstance(span.parent, trace_api.SpanContext):
             d['trace.parent_id'] = trace_api.format_span_id(span.parent.span_id)[2:]
         # TODO: use sampling_decision attributes for sample rate.
@@ -114,10 +129,10 @@ def _translate_to_hny(spans):
     return hny_data
 
 
-def _extract_refs_from_span(span):
+def _extract_refs_from_span(span: Span) -> List[dict]:
     refs = []
 
-    ctx = span.get_context()
+    ctx = span.get_span_context()
     trace_id = ctx.trace_id
     p_span_id = ctx.span_id
     for link in span.links:
@@ -136,10 +151,10 @@ def _extract_refs_from_span(span):
     return refs
 
 
-def _extract_logs_from_span(span):
+def _extract_logs_from_span(span: Span) -> List[dict]:
     logs = []
 
-    ctx = span.get_context()
+    ctx = span.get_span_context()
     trace_id = ctx.trace_id
     p_span_id = ctx.span_id
     for event in span.events:
